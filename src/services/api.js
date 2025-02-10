@@ -1,34 +1,6 @@
-import { getEnvironmentConfig } from '../config/config';
+import { OPENAI_API_KEY, GOOGLE_CLOUD_VISION_KEY, HUGGINGFACE_API_KEY } from '@env';
 
-const config = getEnvironmentConfig();
-
-// Helper function to handle API responses
-const handleResponse = async (response) => {
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'API request failed');
-  }
-  return response.json();
-};
-
-// Helper function to make API requests
-const makeRequest = async (endpoint, options = {}) => {
-  try {
-    const response = await fetch(endpoint, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      ...options,
-    });
-    return handleResponse(response);
-  } catch (error) {
-    console.error('API request failed:', error);
-    throw error;
-  }
-};
-
-// Image Analysis API
+// Image Analysis API (Google Cloud Vision)
 export const analyzeImage = async (imageUri) => {
   const formData = new FormData();
   formData.append('image', {
@@ -37,30 +9,74 @@ export const analyzeImage = async (imageUri) => {
     name: 'image.jpg',
   });
 
-  return makeRequest(config.apiEndpoints.imageAnalysis, {
+  const response = await fetch('https://vision.googleapis.com/v1/images:annotate', {
     method: 'POST',
     headers: {
-      'Content-Type': 'multipart/form-data',
+      'Authorization': `Bearer ${GOOGLE_CLOUD_VISION_KEY}`,
+      'Content-Type': 'application/json',
     },
-    body: formData,
-    timeout: config.timeouts.imageUpload,
+    body: JSON.stringify({
+      requests: [{
+        image: {
+          content: formData
+        },
+        features: [
+          { type: 'LABEL_DETECTION' },
+          { type: 'OBJECT_LOCALIZATION' },
+          { type: 'FACE_DETECTION' },
+          { type: 'TEXT_DETECTION' }
+        ]
+      }]
+    })
   });
+
+  if (!response.ok) {
+    throw new Error('Image analysis failed');
+  }
+
+  return response.json();
 };
 
-// Text Analysis API
+// Text Analysis API (HuggingFace)
 export const analyzeText = async (text) => {
-  return makeRequest(config.apiEndpoints.textAnalysis, {
+  const response = await fetch('https://api-inference.huggingface.co/models/facebook/bart-large-mnli', {
     method: 'POST',
-    body: JSON.stringify({ text }),
-    timeout: config.timeouts.apiRequest,
+    headers: {
+      'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ inputs: text })
   });
+
+  if (!response.ok) {
+    throw new Error('Text analysis failed');
+  }
+
+  return response.json();
 };
 
-// Chatbot API
+// Chatbot API (OpenAI)
 export const sendMessage = async (message) => {
-  return makeRequest(config.apiEndpoints.chatbot, {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
-    body: JSON.stringify({ message }),
-    timeout: config.timeouts.apiRequest,
+    headers: {
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: message }],
+      temperature: 0.7
+    })
   });
+
+  if (!response.ok) {
+    throw new Error('Chat request failed');
+  }
+
+  const data = await response.json();
+  return {
+    response: data.choices[0].message.content,
+    confidence: 1
+  };
 };
